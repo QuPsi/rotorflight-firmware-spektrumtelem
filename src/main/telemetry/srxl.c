@@ -76,6 +76,7 @@
 #define SRXL_FRAMETYPE_TELE_RPM     0x7E
 #define SRXL_FRAMETYPE_POWERBOX     0x0A
 #define SRXL_FRAMETYPE_TELE_FP_MAH  0x34
+#define SRXL_FRAMETYPE_TELE_FUEL    0x22
 #define SRXL_FRAMETYPE_VTX          0x0D   // Video Transmitter Status
 #define SRXL_FRAMETYPE_ESC          0x20   // Electronic Speed Control
 #define SRXL_FRAMETYPE_GPS_LOC      0x16   // GPS Location Data (Eagle Tree)
@@ -460,6 +461,57 @@ bool srxlFrameFlightPackCurrent(sbuf_t *dst, timeUs_t currentTimeUs)
   return false;
 }
 
+/*
+typedef struct
+{
+    UINT8   identifier;      // Source device = 0x22
+    UINT8   sID;             // Secondary ID
+    UINT16  fuelConsumed_A;  // Integrated fuel consumption, 0.1mL
+    UINT16  flowRate_A;      // Instantaneous consumption, 0.01mL/min
+    UINT16  temp_A;          // Temperature, 0.1C
+    UINT16  fuelConsumed_B;  // Integrated fuel consumption, 0.1mL
+    UINT16  flowRate_B;      // Instantaneous consumption, 0.01mL/min
+    UINT16  temp_B;          // Temperature, 0.1C
+    UINT16  spare;           // Not used
+} STRU_TELE_FUEL;
+*/
+
+#define FUEL_KEEPALIVE_TIME_OUT 1000000 // 1s
+
+bool srxlFrameFuel(sbuf_t *dst, timeUs_t currentTimeUs)
+{
+    static timeUs_t lastTimeSentFuel = 0;
+    static uint16_t fuelConsumedSent = 0;
+
+    // Convert remaining fuel percent into tenths (for 0.1 resolution displays).
+    const uint8_t fuelRemaining = getBatteryChargeLevel();
+    const uint16_t fuelConsumed = (uint16_t)constrain((int)fuelRemaining * 10, 0, 1000);
+
+    timeUs_t keepAlive = currentTimeUs - lastTimeSentFuel;
+
+    if (keepAlive > FUEL_KEEPALIVE_TIME_OUT ||
+        fuelConsumed != fuelConsumedSent) {
+
+        sbufWriteU8(dst, SRXL_FRAMETYPE_TELE_FUEL);
+        sbufWriteU8(dst, SRXL_FRAMETYPE_SID);
+
+        sbufWriteU16(dst, fuelConsumed);
+        sbufWriteU16(dst, 0); // flowRate_A
+        sbufWriteU16(dst, 0); // temp_A
+
+        sbufWriteU16(dst, 0); // fuelConsumed_B
+        sbufWriteU16(dst, 0); // flowRate_B
+        sbufWriteU16(dst, 0); // temp_B
+        sbufWriteU16(dst, 0); // spare
+
+        fuelConsumedSent = fuelConsumed;
+        lastTimeSentFuel = currentTimeUs;
+        return true;
+    }
+
+    return false;
+}
+
 #ifdef USE_ESC_SENSOR_TELEMETRY
 
 //  ****** ESC Telemetry frame ******
@@ -785,6 +837,7 @@ static bool srxlFrameVTX(sbuf_t *dst, timeUs_t currentTimeUs)
 #define SRXL_SCHEDULE_MANDATORY_COUNT  2 // Mandatory QOS and RPM sensors
 
 #define SRXL_FP_MAH_COUNT   1
+#define SRXL_FUEL_COUNT     1
 
 #ifdef USE_ESC_SENSOR_TELEMETRY
 #define SRXL_ESC_COUNT   1
@@ -812,7 +865,7 @@ static bool srxlFrameVTX(sbuf_t *dst, timeUs_t currentTimeUs)
 #define SRXL_VTX_TM_COUNT        0
 #endif
 
-#define SRXL_SCHEDULE_USER_COUNT (SRXL_FP_MAH_COUNT + SRXL_ESC_COUNT + SRXL_SCHEDULE_CMS_COUNT + SRXL_VTX_TM_COUNT + SRXL_GPS_LOC_COUNT + SRXL_GPS_STAT_COUNT)
+#define SRXL_SCHEDULE_USER_COUNT (SRXL_FP_MAH_COUNT + SRXL_FUEL_COUNT + SRXL_ESC_COUNT + SRXL_SCHEDULE_CMS_COUNT + SRXL_VTX_TM_COUNT + SRXL_GPS_LOC_COUNT + SRXL_GPS_STAT_COUNT)
 #define SRXL_SCHEDULE_COUNT_MAX  (SRXL_SCHEDULE_MANDATORY_COUNT + 1)
 #define SRXL_TOTAL_COUNT         (SRXL_SCHEDULE_MANDATORY_COUNT + SRXL_SCHEDULE_USER_COUNT)
 
@@ -823,6 +876,7 @@ const srxlScheduleFnPtr srxlScheduleFuncs[SRXL_TOTAL_COUNT] = {
     srxlFrameQos,
     srxlFrameRpm,
     srxlFrameFlightPackCurrent,
+    srxlFrameFuel,
 #ifdef USE_ESC_SENSOR_TELEMETRY
     srxlFrameEsc,
 #endif
