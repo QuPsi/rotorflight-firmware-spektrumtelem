@@ -481,30 +481,31 @@ typedef struct
 bool srxlFrameFuel(sbuf_t *dst, timeUs_t currentTimeUs)
 {
     static timeUs_t lastTimeSentFuel = 0;
-    static uint16_t fuelConsumedSent = 0;
+    static uint16_t fuelSent = 0;
 
     // Convert remaining fuel percent into tenths (for 0.1 resolution displays).
     const uint8_t fuelRemaining = getBatteryChargeLevel();
-    const uint16_t fuelConsumed = (uint16_t)constrain((int)fuelRemaining * 10, 0, 1000);
+    const uint16_t fuelRemainingPercent = (uint16_t)constrain((int)fuelRemaining * 10, 0, 1000);
+    const uint16_t fuelConsumed = 1000 - fuelRemainingPercent;
 
     timeUs_t keepAlive = currentTimeUs - lastTimeSentFuel;
 
     if (keepAlive > FUEL_KEEPALIVE_TIME_OUT ||
-        fuelConsumed != fuelConsumedSent) {
+        fuelRemainingPercent != fuelSent) {
 
         sbufWriteU8(dst, SRXL_FRAMETYPE_TELE_FUEL);
         sbufWriteU8(dst, SRXL_FRAMETYPE_SID);
 
-        sbufWriteU16(dst, fuelConsumed);
+        sbufWriteU16(dst, fuelRemainingPercent); // fuelConsumed_A
         sbufWriteU16(dst, 0); // flowRate_A
         sbufWriteU16(dst, 0); // temp_A
 
-        sbufWriteU16(dst, 0); // fuelConsumed_B
+        sbufWriteU16(dst, fuelConsumed); // fuelConsumed_B
         sbufWriteU16(dst, 0); // flowRate_B
         sbufWriteU16(dst, 0); // temp_B
         sbufWriteU16(dst, 0); // spare
 
-        fuelConsumedSent = fuelConsumed;
+        fuelSent = fuelRemainingPercent;
         lastTimeSentFuel = currentTimeUs;
         return true;
     }
